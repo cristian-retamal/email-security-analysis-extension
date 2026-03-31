@@ -10,9 +10,20 @@
 
   const DEFAULT_REASON = "No se detectaron señales claras de riesgo en lo visible.";
   const urgencyPattern = /(urgente|inmediatamente|act(ú|u)a ahora|cuenta (suspendida|bloqueada)|última oportunidad|pago pendiente|verifica tu cuenta|verify|suspended|urgent|immediately)/i;
-  const asksSecretsPattern = /(contrase(ñ|n)a|password|c(ó|o)digo|otp|token|transferencia|wire|gift card|tarjeta regalo)/i;
+  const asksSecretsPattern = /(contrase(ñ|n)a|password|c(ó|o)digo|otp|token|gift card|tarjeta regalo)/i;
   const impersonationWordsPattern = /(microsoft|outlook|hotmail|live)/i;
   const accountThreatsPattern = /(suspendida|confirmar|verifica|cerrar|bloqueada|account|confirmación)/i;
+  const credentialHarvestPattern = /(verificar cuenta|confirmar su cuenta|valida(r)? sus datos|validar sus datos|inicie sesión|restablecer contraseña|actualice su cuenta|verify your account|validate your account)/i;
+  const bankNoticePattern = /(transferencia|transferencia recibida|transferencia enviada|dep(ó|o)sito|abono|cargo|movimiento(s)?|operaci(ó|o)n|comprobante|pago recibido|pago aplicado|spei|clabe|interbancaria|bank transfer|wire transfer|payment received|transaction alert|transaction notice)/i;
+  const riskyMoneyRequestPattern = /(realiza(r)? una transferencia|env(í|i)e dinero|wire now|urgent wire|gift card|tarjeta regalo|western union|moneygram)/i;
+  const officialMicrosoftDomains = ["microsoft.com", "live.com", "outlook.com", "hotmail.com"];
+  const suspiciousHostDomains = [
+    "webcindario.com",
+    "blogspot.com",
+    "wixsite.com",
+    "weebly.com",
+    "000webhostapp.com"
+  ];
   const shorteners = new Set([
     "bit.ly", "tinyurl.com", "t.co", "goo.gl", "ow.ly", "is.gd", "cutt.ly", "rb.gy", "rebrand.ly"
   ]);
@@ -173,6 +184,16 @@
     return false;
   }
 
+  function isOfficialMicrosoftDomain(domain) {
+    if (!domain) return false;
+    return officialMicrosoftDomains.some(official => domain === official || domain.endsWith("." + official));
+  }
+
+  function isSuspiciousHostedDomain(domain) {
+    if (!domain) return false;
+    return suspiciousHostDomains.some(hosted => domain === hosted || domain.endsWith("." + hosted));
+  }
+
   function shouldFlagDomainMismatch(linkText, href) {
     const anchorText = (linkText || "").trim();
 
@@ -239,6 +260,11 @@
     const body = (email.bodyExcerpt || "").toLowerCase();
     const textDomains = extractDomainsFromText(email.bodyExcerpt);
     const links = Array.isArray(email.links) ? email.links : [];
+    const senderDomain = (() => {
+      const addr = (email.senderAddress || "").toLowerCase();
+      const at = addr.lastIndexOf("@");
+      return at >= 0 ? addr.slice(at + 1) : "";
+    })();
     const normalizedLinks = links.map(link => ({
       ...link,
       host: getEffectiveDomain(link.href)
@@ -312,30 +338,81 @@
       findings.push({ level: "yellow", msg: "Mensaje muy corto con enlace (patrón común de engaños)." });
     }
 
-    const senderDomain = (() => {
-      const addr = (email.senderAddress || "").toLowerCase();
-      const at = addr.lastIndexOf("@");
-      return at >= 0 ? addr.slice(at + 1) : "";
-    })();
+    const mentionsMicrosoftBrand =
+      impersonationWordsPattern.test(subject) || impersonationWordsPattern.test(body);
+    const mentionsAccountThreat =
+      accountThreatsPattern.test(subject) || accountThreatsPattern.test(body);
+    const asksToValidateAccount =
+      credentialHarvestPattern.test(subject) || credentialHarvestPattern.test(body);
+    const looksLikeBankNotice =
+      bankNoticePattern.test(subject) || bankNoticePattern.test(body);
+    const asksForRiskyMoneyAction =
+      riskyMoneyRequestPattern.test(subject) || riskyMoneyRequestPattern.test(body);
+    const externalTextDomains = textDomains.filter(d => !isOfficialMicrosoftDomain(d));
+    const suspiciousHostedTextDomain = externalTextDomains.find(isSuspiciousHostedDomain);
+    const linksMatchSenderDomain =
+      !!senderDomain &&
+      normalizedLinks.length > 0 &&
+      normalizedLinks.every(link => !link.host || domainsMatch(link.host, senderDomain));
+    const looksLikeLegitTransactionalNotice =
+      looksLikeBankNotice &&
+      !asksToValidateAccount &&
+      !asksForRiskyMoneyAction &&
+      !mentionsMicrosoftBrand &&
+      !suspiciousHostedTextDomain &&
+      (normalizedLinks.length === 0 || linksMatchSenderDomain);
+
+    if (mentionsMicrosoftBrand && senderDomain && !isOfficialMicrosoftDomain(senderDomain)) {
+      score += 40;
+      findings.push({
+        level: "red",
+        msg: "El mensaje aparenta ser de Microsoft, pero el remitente no usa un dominio oficial."
+      });
+    }
+
+    if (asksToValidateAccount) {
+      score += 30;
+      findings.push({
+        level: "red",
+        msg: "El correo pide validar o verificar la cuenta, una táctica común de robo de acceso."
+      });
+    }
+
+    if (suspiciousHostedTextDomain) {
+      score += 35;
+      findings.push({
+        level: "red",
+        msg: "Aparece un dominio de hosting gratuito o poco confiable en el contenido del mensaje."
+      });
+    }
 
     if (
-      impersonationWordsPattern.test(body) &&
-      accountThreatsPattern.test(body)
+      mentionsMicrosoftBrand &&
+      mentionsAccountThreat
     ) {
-      for (const d of textDomains) {
-        if (
-          !d.endsWith("microsoft.com") &&
-          !d.endsWith("live.com") &&
-          !d.endsWith("outlook.com")
-        ) {
-          score += 50;
-          findings.push({
-            level: "red",
-            msg: "El correo se hace pasar por Microsoft pero dirige a un sitio externo."
-          });
-          break;
-        }
+      if (externalTextDomains.length > 0) {
+        score += 50;
+        findings.push({
+          level: "red",
+          msg: "El correo se hace pasar por Microsoft pero dirige a un sitio externo."
+        });
       }
+    }
+
+    if (mentionsMicrosoftBrand && asksToValidateAccount && senderDomain && !isOfficialMicrosoftDomain(senderDomain)) {
+      score += 25;
+      findings.push({
+        level: "red",
+        msg: "La combinación de remitente ajeno a Microsoft y solicitud de verificación indica alta probabilidad de phishing."
+      });
+    }
+
+    if (looksLikeLegitTransactionalNotice) {
+      score = Math.max(0, score - 20);
+      findings.push({
+        level: "yellow",
+        msg: "El mensaje parece un aviso transaccional o comprobante, no una solicitud de acceso a la cuenta."
+      });
     }
 
     score = Math.min(100, score);
@@ -365,6 +442,7 @@
       verdict,
       level,
       reasons,
+      findings: uniq(ordered),
       senderDomain,
       linkDomains: uniqueHosts
     };

@@ -9,6 +9,7 @@ let currentMessageKey = null;
 
 const analyzeBtn = $("analyzeBtn");
 const status = $("status");
+const statusText = $("statusText");
 const hint = $("hint");
 const errorBox = $("error");
 
@@ -19,6 +20,7 @@ const reason2 = $("reason2");
 const providerEl = $("provider");
 const senderDomainEl = $("senderDomain");
 const linkDomainsEl = $("linkDomains");
+const findingsListEl = $("findingsList");
 
 const emlFile = document.getElementById("emlFile");
 
@@ -101,7 +103,7 @@ chrome.runtime.onMessage.addListener((msg) => {
 function resetEvaluation() {
   hint.classList.remove("hidden");
   status.classList.add("hidden");
-  status.textContent = "";
+  if (statusText) statusText.textContent = "";
   verdictPill.className = "pill";
   verdictPill.textContent = "";
   reason1.textContent = "";
@@ -109,13 +111,14 @@ function resetEvaluation() {
   providerEl.textContent = "—";
   senderDomainEl.textContent = "—";
   linkDomainsEl.textContent = "—";
+  if (findingsListEl) findingsListEl.innerHTML = "";
   clearError();
 }
 
 function prepareForAnalysis() {
   hint.classList.add("hidden");
   status.classList.remove("hidden");
-  status.textContent = "Analizando correo...";
+  if (statusText) statusText.textContent = "Analizando correo...";
   analyzeBtn.disabled = false;
 }
 
@@ -125,7 +128,7 @@ function renderAnalysis(email, result) {
     result.level === "yellow" ? "🟡 Precaución" :
     "🟢 Se ve normal";
 
-  status.textContent = `Nivel de análisis: ${label}`;
+  if (statusText) statusText.textContent = `Nivel de análisis: ${label}`;
   setPill(result.level, label);
 
   reason1.textContent = result.reasons[0] || "";
@@ -136,6 +139,16 @@ function renderAnalysis(email, result) {
   linkDomainsEl.textContent = (result.linkDomains && result.linkDomains.length)
     ? result.linkDomains.join(", ")
     : "—";
+
+  if (findingsListEl) {
+    findingsListEl.innerHTML = "";
+    const findings = Array.isArray(result.findings) ? result.findings : [];
+    for (const finding of findings) {
+      const item = document.createElement("li");
+      item.textContent = finding;
+      findingsListEl.appendChild(item);
+    }
+  }
 }
 
 function analyzeEmailData(sourceKey, emailData) {
@@ -187,7 +200,7 @@ analyzeBtn.addEventListener("click", async () => {
     renderAnalysis(email.data, result);
   } catch (e) {
     showError(e?.message || String(e));
-    status.textContent = "";
+    if (statusText) statusText.textContent = "";
   } finally {
     analyzeBtn.disabled = false;
     analyzeBtn.textContent = "Analizar este correo";

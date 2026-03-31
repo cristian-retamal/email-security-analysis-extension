@@ -21,12 +21,17 @@
       </div>
 
       <div id="status" class="status hidden">
+        <div id="statusText" class="statusText"></div>
         <div id="verdictPill" class="pill">—</div>
         <div id="reason1" class="reason"></div>
         <div id="reason2" class="reason"></div>
 
         <details class="details">
-          <summary>Ver detalles</summary>
+          <summary>Ver detalle del diagnóstico</summary>
+          <div class="findingsBlock">
+            <div class="sectionTitle">Señales detectadas</div>
+            <ul id="findingsList" class="findingsList"></ul>
+          </div>
           <div class="kv"><span>Proveedor:</span> <span id="provider">—</span></div>
           <div class="kv"><span>Dominio remitente:</span> <span id="senderDomain">—</span></div>
           <div class="kv"><span>Dominios links:</span> <span id="linkDomains">—</span></div>
