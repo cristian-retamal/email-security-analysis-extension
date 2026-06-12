@@ -1,39 +1,42 @@
-# AGENTS.md — Extensión Anti-Phishing Chrome
+# AGENTS.md — MailSafe Anti-Phishing Chrome Extension
 
-## ¿Qué hace este proyecto?
-Extensión de Chrome (Manifest V3) que detecta señales de phishing
-en español analizando texto de páginas web y correos electrónicos
-mediante expresiones regulares y un sistema de umbral configurable.
+## What does this project do?
+Chrome extension (Manifest V3) that detects phishing signals by analyzing
+text from web pages and emails using regular expressions and a configurable
+threshold system. All analysis runs locally — no data is sent to external servers.
 
 ## Stack
-- JavaScript (vanilla, sin frameworks)
-- HTML / CSS para el popup
+- JavaScript (vanilla, no frameworks)
+- HTML / CSS for the popup UI
 - Chrome Extension APIs (Manifest V3)
 
-## Archivos clave
-- `popup.js` — lógica principal de análisis y UI del popup
-- `popup.html` — interfaz del popup de la extensión
-- `manifest.json` — configuración y permisos de la extensión
+## Key files
+- `analysis.js` — core phishing detection logic and scoring
+- `popup.js` — popup UI logic and analysis orchestration
+- `popup.html` — extension popup interface
+- `content.js` — content script injected into Gmail / Outlook pages
+- `manifest.json` — extension configuration and permissions
+- `i18n.js` — internationalization helpers
 
-## Cómo correr y probar
-1. Abre Chrome → `chrome://extensions`
-2. Activa "Modo desarrollador"
-3. Clic en "Cargar descomprimida" → selecciona esta carpeta
-4. Recarga la extensión tras cada cambio en JS
+## How to run and test
+1. Open Chrome → `chrome://extensions`
+2. Enable "Developer mode"
+3. Click "Load unpacked" → select this folder
+4. Reload the extension after every JS change
 
-## Convenciones de código
-- JavaScript moderno (ES6+)
-- Nombres de funciones en camelCase descriptivo
-- Comentarios en español
-- Sin dependencias externas por ahora
+## Code conventions
+- Modern JavaScript (ES6+)
+- Descriptive camelCase function names
+- No external dependencies
+- Comments in English
 
-## Prioridades al modificar código
-1. No romper la detección de phishing existente
-2. Mantener rendimiento (corre en cada página visitada)
-3. Código limpio y extensible para agregar nuevas señales
-4. Seguir buenas prácticas de Manifest V3
+## Priorities when modifying code
+1. Do not break existing phishing detection
+2. Keep performance in mind (runs on visited pages)
+3. Clean, extensible code for adding new signals
+4. Follow Manifest V3 best practices
 
-## Lo que NO hacer
-- No usar `eval()` ni `innerHTML` sin sanitizar (riesgo de seguridad)
-- No agregar permisos al manifest sin documentar por qué
-- No usar Manifest V2 — este proyecto es V3
+## What NOT to do
+- Do not use `eval()` or unsanitized `innerHTML` (security risk)
+- Do not add permissions to the manifest without documenting why
+- Do not use Manifest V2 — this project is V3
