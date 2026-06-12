@@ -79,3 +79,19 @@ body { margin: 0; width: 340px; background: #0b0f14; color: #e8eef7; }
 #emlFile {
   width: 100%;
 }
+
+.langSelector {
+  margin-top: 12px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.langSelector select {
+  background: #0f1620;
+  color: #8ea8c8;
+  border: 1px solid #203040;
+  border-radius: 6px;
+  padding: 3px 6px;
+  font-size: 11px;
+  cursor: pointer;
+}

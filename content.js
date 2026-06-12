@@ -111,7 +111,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   try {
     const data = extractEmailData();
     if (!data) {
-      sendResponse({ ok: false, error: "No detecté un correo abierto. Abre el correo y vuelve a intentar." });
+      sendResponse({ ok: false, errorCode: "noEmailOpen" });
       return;
     }
 

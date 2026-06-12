@@ -1,4 +1,6 @@
 ﻿window.MailSafeAnalysis = (() => {
+  const _t = (key, params) => window.MailSafeI18n?.t(key, params) ?? key;
+
   const TRUSTED_DOMAINS = [
     "edu",
     "k12",
@@ -8,7 +10,6 @@
     "cogat.com"
   ];
 
-  const DEFAULT_REASON = "No se detectaron señales claras de riesgo en lo visible.";
   const urgencyPattern = /(urgente|inmediatamente|act(ú|u)a ahora|cuenta (suspendida|bloqueada)|última oportunidad|pago pendiente|verifica tu cuenta|verify|suspended|urgent|immediately)/i;
   const asksSecretsPattern = /(contrase(ñ|n)a|password|c(ó|o)digo|otp|token|gift card|tarjeta regalo)/i;
   const impersonationWordsPattern = /(microsoft|outlook|hotmail|live)/i;
@@ -17,6 +18,53 @@
   const bankNoticePattern = /(transferencia|transferencia recibida|transferencia enviada|dep(ó|o)sito|abono|cargo|movimiento(s)?|operaci(ó|o)n|comprobante|pago recibido|pago aplicado|spei|clabe|interbancaria|bank transfer|wire transfer|payment received|transaction alert|transaction notice)/i;
   const riskyMoneyRequestPattern = /(realiza(r)? una transferencia|env(í|i)e dinero|wire now|urgent wire|gift card|tarjeta regalo|western union|moneygram)/i;
   const officialMicrosoftDomains = ["microsoft.com", "live.com", "outlook.com", "hotmail.com"];
+  const specialSecondLevelTlds = new Set([
+    "co.uk", "org.uk", "gov.uk", "ac.uk",
+    "com.au", "net.au", "org.au",
+    "co.nz", "org.nz",
+    "com.mx", "org.mx",
+    "co.jp", "ne.jp", "or.jp"
+  ]);
+  const freeHostingDomains = [
+    "weebly.com",
+    "wixsite.com",
+    "blogspot.com",
+    "wordpress.com",
+    "sites.google.com",
+    "github.io",
+    "000webhostapp.com",
+    "web.app",
+    "firebaseapp.com"
+  ];
+  const suspiciousHostnameKeywords = [
+    "login", "verify", "secure", "account", "update",
+    "confirm", "signin", "auth", "wallet", "banking"
+  ];
+  const brandMap = {
+    Microsoft: ["microsoft.com", "live.com", "outlook.com", "hotmail.com"],
+    Google: ["google.com", "gmail.com"],
+    PayPal: ["paypal.com"],
+    Amazon: ["amazon.com"],
+    Apple: ["apple.com", "icloud.com"]
+  };
+  const userContentPlatforms = [
+    "sites.google.com",
+    "github.io",
+    "blogspot.com",
+    "wordpress.com",
+    "wixsite.com",
+    "weebly.com",
+    "000webhostapp.com",
+    "web.app",
+    "firebaseapp.com"
+  ];
+  const brandUnsafeSubplatforms = {
+    Google: ["sites.google.com"],
+    Microsoft: [],
+    PayPal: [],
+    Amazon: [],
+    Apple: []
+  };
   const suspiciousHostDomains = [
     "webcindario.com",
     "blogspot.com",
@@ -26,6 +74,10 @@
   ];
   const shorteners = new Set([
     "bit.ly", "tinyurl.com", "t.co", "goo.gl", "ow.ly", "is.gd", "cutt.ly", "rb.gy", "rebrand.ly"
+  ]);
+  const redirectors = new Set([
+    "bit.ly", "tinyurl.com", "t.co", "goo.gl", "ow.ly", "is.gd", "cutt.ly", "rb.gy", "rebrand.ly",
+    "lnkd.in", "l.facebook.com", "mailchi.mp"
   ]);
   const DEBUG_MISMATCH = false;
 
@@ -98,6 +150,99 @@
 
   function hasPunycode(host) {
     return host.includes("xn--");
+  }
+
+  function getRegistrableDomain(host) {
+    const normalizedHost = (host || "").toLowerCase().replace(/\.$/, "");
+    if (!normalizedHost || looksLikeIpHost(normalizedHost)) return normalizedHost;
+
+    const parts = normalizedHost.split(".").filter(Boolean);
+    if (parts.length <= 2) return normalizedHost;
+
+    const lastTwo = parts.slice(-2).join(".");
+    const lastThree = parts.slice(-3).join(".");
+
+    if (specialSecondLevelTlds.has(lastTwo) && parts.length >= 3) {
+      return lastThree;
+    }
+
+    return lastTwo;
+  }
+
+  function getParentDomain(host) {
+    return getRegistrableDomain(host);
+  }
+
+  function isFreeHostingDomain(host) {
+    const normalizedHost = (host || "").toLowerCase();
+    return freeHostingDomains.some(domain => normalizedHost === domain || normalizedHost.endsWith("." + domain));
+  }
+
+  function isUserContentPlatform(host) {
+    const normalizedHost = (host || "").toLowerCase();
+    return userContentPlatforms.some(platform => normalizedHost === platform || normalizedHost.endsWith("." + platform));
+  }
+
+  function hasSuspiciousKeywords(host) {
+    const normalizedHost = (host || "").toLowerCase();
+    return suspiciousHostnameKeywords.some(keyword => normalizedHost.includes(keyword));
+  }
+
+  function hasTooManySubdomains(host) {
+    const normalizedHost = (host || "").toLowerCase();
+    if (!normalizedHost || looksLikeIpHost(normalizedHost)) return false;
+
+    const parentDomain = getParentDomain(normalizedHost);
+    const hostParts = normalizedHost.split(".").filter(Boolean);
+    const parentParts = (parentDomain || "").split(".").filter(Boolean);
+    return hostParts.length - parentParts.length >= 3;
+  }
+
+  function looksSuspiciousDomainShape(host) {
+    const normalizedHost = (host || "").toLowerCase();
+    if (!normalizedHost || looksLikeIpHost(normalizedHost)) return false;
+
+    return normalizedHost.includes("--") ||
+      /\d{5,}/.test(normalizedHost) ||
+      hasTooManySubdomains(normalizedHost) ||
+      hasSuspiciousKeywords(normalizedHost);
+  }
+
+  function isKnownRedirector(host) {
+    const normalizedHost = (host || "").toLowerCase();
+    return redirectors.has(normalizedHost);
+  }
+
+  function enrichLinks(links) {
+    const safeLinks = Array.isArray(links) ? links : [];
+    return safeLinks.map(link => {
+      const normalized = normalizeLinkHref
+        ? normalizeLinkHref(link.href)
+        : {
+            effectiveHref: link.href,
+            effectiveDomain: getDomain(link.href)
+          };
+      const host = (normalized.effectiveDomain || "").toLowerCase();
+      const effectiveHost = host;
+      const registrableDomain = getRegistrableDomain(host);
+      return {
+        ...link,
+        fullHost: host,
+        host,
+        registrableDomain,
+        parentDomain: registrableDomain,
+        effectiveHref: normalized.effectiveHref || link.href,
+        effectiveHost,
+        effectiveParentDomain: getRegistrableDomain(effectiveHost),
+        isShortener: isShortener(host),
+        isIp: looksLikeIpHost(host),
+        isPunycode: hasPunycode(host),
+        isFreeHosting: isFreeHostingDomain(host),
+        isUserContentPlatform: isUserContentPlatform(host),
+        suspiciousShape: looksSuspiciousDomainShape(host),
+        isRedirector: isKnownRedirector(host)
+      };
+    });
   }
 
   function looksLikeUrl(text) {
@@ -194,6 +339,76 @@
     return suspiciousHostDomains.some(hosted => domain === hosted || domain.endsWith("." + hosted));
   }
 
+  function isAllowedBrandDomain(domain, allowedDomains) {
+    if (!domain) return false;
+    return allowedDomains.some(allowed => domain === allowed || domain.endsWith("." + allowed));
+  }
+
+  function isBrandSubplatform(brand, host) {
+    const normalizedHost = (host || "").toLowerCase();
+    const unsafeHosts = brandUnsafeSubplatforms[brand] || [];
+    return unsafeHosts.some(unsafeHost => normalizedHost === unsafeHost || normalizedHost.endsWith("." + unsafeHost));
+  }
+
+  function isBrandOwnedDomain(brand, host, registrableDomain) {
+    const normalizedHost = (host || "").toLowerCase();
+    const normalizedDomain = (registrableDomain || "").toLowerCase();
+    const allowedDomains = brandMap[brand] || [];
+
+    if (!isAllowedBrandDomain(normalizedDomain, allowedDomains)) {
+      return false;
+    }
+
+    if (isBrandSubplatform(brand, normalizedHost)) {
+      return false;
+    }
+
+    return true;
+  }
+
+  function detectBrandImpersonation(body, links) {
+    const bodyText = (body || "").toLowerCase();
+    const enrichedLinks = Array.isArray(links) ? links : [];
+
+    for (const [brand, domains] of Object.entries(brandMap)) {
+      if (!bodyText.includes(brand.toLowerCase())) continue;
+
+      const actionableLinks = enrichedLinks.filter(link =>
+        (link.effectiveHost || link.host) &&
+        !link.isIp
+      );
+
+      if (actionableLinks.length === 0) continue;
+
+      const hasOfficialBrandLink = actionableLinks.some(link => {
+        const hostToCompare = link.effectiveHost || link.host;
+        const domainToCompare = link.effectiveParentDomain || link.parentDomain;
+        return isBrandOwnedDomain(brand, hostToCompare, domainToCompare);
+      });
+
+      const hasClearlyUnrelatedLink = actionableLinks.some(link => {
+        const hostToCompare = link.effectiveHost || link.host;
+        const domainToCompare = link.effectiveParentDomain || link.parentDomain;
+        if (isBrandOwnedDomain(brand, hostToCompare, domainToCompare)) return false;
+        if (link.isRedirector && !link.effectiveParentDomain) return false;
+        if (isBrandSubplatform(brand, hostToCompare)) return true;
+        return !!domainToCompare && !isAllowedBrandDomain(domainToCompare, domains);
+      });
+
+      if (!hasOfficialBrandLink && hasClearlyUnrelatedLink) {
+        return brand;
+      }
+
+      if (actionableLinks.some(link =>
+        isBrandSubplatform(brand, link.effectiveHost || link.host)
+      )) {
+        return brand;
+      }
+    }
+
+    return null;
+  }
+
   function shouldFlagDomainMismatch(linkText, href) {
     const anchorText = (linkText || "").trim();
 
@@ -265,27 +480,36 @@
       const at = addr.lastIndexOf("@");
       return at >= 0 ? addr.slice(at + 1) : "";
     })();
-    const normalizedLinks = links.map(link => ({
-      ...link,
-      host: getEffectiveDomain(link.href)
-    }));
+    const normalizedLinks = enrichLinks(links);
     const uniqueHosts = uniq(normalizedLinks.map(link => link.host).filter(Boolean));
 
     for (const link of normalizedLinks) {
       const host = link.host;
       if (!host) continue;
 
-      if (looksLikeIpHost(host)) {
+      if (link.isIp) {
         score += 40;
-        findings.push({ level: "red", msg: "Hay un enlace que apunta a una dirección IP (muy sospechoso)." });
+        findings.push({ level: "red", msg: _t("ipLink") });
       }
-      if (isShortener(host)) {
+      if (link.isShortener) {
         score += 25;
-        findings.push({ level: "red", msg: "Hay un enlace acortado (puede ocultar el destino real)." });
+        findings.push({ level: "red", msg: _t("shortenedLink") });
       }
-      if (hasPunycode(host)) {
+      if (link.isPunycode) {
         score += 30;
-        findings.push({ level: "red", msg: "Hay un enlace con dominio extraño (posible suplantación)." });
+        findings.push({ level: "red", msg: _t("punycodeLink") });
+      }
+      if (link.isFreeHosting) {
+        score += 20;
+        findings.push({ level: "red", msg: _t("freeHostingLink") });
+      }
+      if (link.suspiciousShape) {
+        score += 12;
+        findings.push({ level: "yellow", msg: _t("suspiciousDomain") });
+      }
+      if (link.isRedirector && !link.isShortener) {
+        score += 12;
+        findings.push({ level: "yellow", msg: _t("redirectorLink") });
       }
 
       const mismatchCheck = shouldFlagDomainMismatch(link.text || "", link.href);
@@ -297,16 +521,10 @@
 
         if (!looksInstitutional) {
           score += 25;
-          findings.push({
-            level: "red",
-            msg: "El texto del enlace no coincide con el sitio real (posible suplantación)."
-          });
+          findings.push({ level: "red", msg: _t("linkTextMismatch") });
         } else {
           score += 5;
-          findings.push({
-            level: "yellow",
-            msg: "El enlace apunta a un sitio institucional distinto al texto mostrado."
-          });
+          findings.push({ level: "yellow", msg: _t("institutionalMismatch") });
         }
       }
     }
@@ -314,28 +532,28 @@
     if (urgencyPattern.test(subject) || urgencyPattern.test(body)) {
       if (links.length > 0) {
         score += 25;
-        findings.push({ level: "red", msg: "Lenguaje de urgencia junto a enlaces (patrón típico de phishing)." });
+        findings.push({ level: "red", msg: _t("urgencyWithLinks") });
       } else {
         score += 10;
-        findings.push({ level: "yellow", msg: "Lenguaje de urgencia (precaución)." });
+        findings.push({ level: "yellow", msg: _t("urgencyAlone") });
       }
     }
 
     if (asksSecretsPattern.test(subject) || asksSecretsPattern.test(body)) {
       score += 25;
-      findings.push({ level: "red", msg: "El mensaje sugiere pedir claves/códigos o dinero (alto riesgo)." });
+      findings.push({ level: "red", msg: _t("asksSecrets") });
     }
 
     if (links.length >= 5) {
       score += 10;
-      findings.push({ level: "yellow", msg: "Contiene muchos enlaces (revisa antes de hacer clic)." });
+      findings.push({ level: "yellow", msg: _t("manyLinks") });
     }
 
     const bodyText = (email.bodyExcerpt || "").trim();
     const veryShort = bodyText.length > 0 && bodyText.length < 60;
     if (veryShort && links.length > 0) {
       score += 10;
-      findings.push({ level: "yellow", msg: "Mensaje muy corto con enlace (patrón común de engaños)." });
+      findings.push({ level: "yellow", msg: _t("shortWithLink") });
     }
 
     const mentionsMicrosoftBrand =
@@ -353,7 +571,7 @@
     const linksMatchSenderDomain =
       !!senderDomain &&
       normalizedLinks.length > 0 &&
-      normalizedLinks.every(link => !link.host || domainsMatch(link.host, senderDomain));
+      normalizedLinks.every(link => !link.parentDomain || domainsMatch(link.parentDomain, senderDomain));
     const looksLikeLegitTransactionalNotice =
       looksLikeBankNotice &&
       !asksToValidateAccount &&
@@ -364,26 +582,17 @@
 
     if (mentionsMicrosoftBrand && senderDomain && !isOfficialMicrosoftDomain(senderDomain)) {
       score += 40;
-      findings.push({
-        level: "red",
-        msg: "El mensaje aparenta ser de Microsoft, pero el remitente no usa un dominio oficial."
-      });
+      findings.push({ level: "red", msg: _t("microsoftImpersonation") });
     }
 
     if (asksToValidateAccount) {
       score += 30;
-      findings.push({
-        level: "red",
-        msg: "El correo pide validar o verificar la cuenta, una táctica común de robo de acceso."
-      });
+      findings.push({ level: "red", msg: _t("accountVerification") });
     }
 
     if (suspiciousHostedTextDomain) {
       score += 35;
-      findings.push({
-        level: "red",
-        msg: "Aparece un dominio de hosting gratuito o poco confiable en el contenido del mensaje."
-      });
+      findings.push({ level: "red", msg: _t("freeHostingInContent") });
     }
 
     if (
@@ -392,27 +601,24 @@
     ) {
       if (externalTextDomains.length > 0) {
         score += 50;
-        findings.push({
-          level: "red",
-          msg: "El correo se hace pasar por Microsoft pero dirige a un sitio externo."
-        });
+        findings.push({ level: "red", msg: _t("microsoftExternalLink") });
       }
     }
 
     if (mentionsMicrosoftBrand && asksToValidateAccount && senderDomain && !isOfficialMicrosoftDomain(senderDomain)) {
       score += 25;
-      findings.push({
-        level: "red",
-        msg: "La combinación de remitente ajeno a Microsoft y solicitud de verificación indica alta probabilidad de phishing."
-      });
+      findings.push({ level: "red", msg: _t("microsoftPhishingPattern") });
+    }
+
+    const impersonatedBrand = detectBrandImpersonation(email.bodyExcerpt || "", normalizedLinks);
+    if (impersonatedBrand) {
+      score += 40;
+      findings.push({ level: "red", msg: _t("brandImpersonation", { brand: impersonatedBrand }) });
     }
 
     if (looksLikeLegitTransactionalNotice) {
       score = Math.max(0, score - 20);
-      findings.push({
-        level: "yellow",
-        msg: "El mensaje parece un aviso transaccional o comprobante, no una solicitud de acceso a la cuenta."
-      });
+      findings.push({ level: "yellow", msg: _t("transactionalNotice") });
     }
 
     score = Math.min(100, score);
@@ -434,7 +640,7 @@
 
     const reasons = uniq(ordered).slice(0, 2);
     if (reasons.length === 0) {
-      reasons.push(DEFAULT_REASON);
+      reasons.push(_t("defaultReason"));
     }
 
     return {

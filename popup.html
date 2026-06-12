@@ -1,5 +1,5 @@
-﻿<!doctype html>
-<html lang="es">
+<!doctype html>
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -10,13 +10,13 @@
     <div class="wrap">
       <div class="header">
         <div class="title">MailSafe</div>
-        <div class="subtitle">Análisis a demanda</div>
+        <div id="subtitle" class="subtitle">On-demand Analysis</div>
       </div>
 
-      <button id="analyzeBtn" class="btn">Analizar este correo</button>
-      
+      <button id="analyzeBtn" class="btn">Analyze this email</button>
+
       <div class="upload">
-        <label class="uploadLabel">o analizar archivo .eml</label>
+        <label id="uploadLabel" class="uploadLabel">or analyze .eml file</label>
         <input id="emlFile" type="file" accept=".eml,message/rfc822" />
       </div>
 
@@ -27,24 +27,32 @@
         <div id="reason2" class="reason"></div>
 
         <details class="details">
-          <summary>Ver detalle del diagnóstico</summary>
+          <summary id="detailsSummary">View diagnostic details</summary>
           <div class="findingsBlock">
-            <div class="sectionTitle">Señales detectadas</div>
+            <div id="signalsTitle" class="sectionTitle">Detected signals</div>
             <ul id="findingsList" class="findingsList"></ul>
           </div>
-          <div class="kv"><span>Proveedor:</span> <span id="provider">—</span></div>
-          <div class="kv"><span>Dominio remitente:</span> <span id="senderDomain">—</span></div>
-          <div class="kv"><span>Dominios links:</span> <span id="linkDomains">—</span></div>
+          <div class="kv"><span id="providerLabel">Provider:</span> <span id="provider">—</span></div>
+          <div class="kv"><span id="senderDomainLabel">Sender domain:</span> <span id="senderDomain">—</span></div>
+          <div class="kv"><span id="linkDomainsLabel">Link domains:</span> <span id="linkDomains">—</span></div>
         </details>
       </div>
 
       <div id="hint" class="hint">
-        Abre un correo en Gmail o Outlook Web y presiona “Analizar”.
+        Open an email in Gmail or Outlook Web and press "Analyze".
       </div>
 
       <div id="error" class="error hidden"></div>
+
+      <div class="langSelector">
+        <select id="langSelect">
+          <option value="en">English</option>
+          <option value="es">Español</option>
+        </select>
+      </div>
     </div>
 
+    <script src="i18n.js"></script>
     <script src="linkNormalizer.js"></script>
     <script src="analysis.js"></script>
     <script src="popup.js"></script>

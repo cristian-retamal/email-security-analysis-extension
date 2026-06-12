@@ -1,4 +1,7 @@
-﻿const $ = (id) => document.getElementById(id);
+const $ = (id) => document.getElementById(id);
+const i18n = window.MailSafeI18n;
+const t = (key, params) => i18n.t(key, params);
+
 const analysisApi = window.MailSafeAnalysis;
 const analyzeLocally = analysisApi?.analyzeLocally;
 const parseEmlBasic = analysisApi?.parseEmlBasic;
@@ -23,11 +26,34 @@ const linkDomainsEl = $("linkDomains");
 const findingsListEl = $("findingsList");
 
 const emlFile = document.getElementById("emlFile");
+const langSelect = $("langSelect");
+
+function applyTranslations() {
+  document.documentElement.lang = i18n.getLang();
+  $("subtitle").textContent = t("subtitle");
+  analyzeBtn.textContent = t("analyzeBtn");
+  $("uploadLabel").textContent = t("uploadLabel");
+  $("detailsSummary").textContent = t("detailsSummary");
+  $("signalsTitle").textContent = t("signalsTitle");
+  $("providerLabel").textContent = t("providerLabel");
+  $("senderDomainLabel").textContent = t("senderDomainLabel");
+  $("linkDomainsLabel").textContent = t("linkDomainsLabel");
+  hint.textContent = t("hint");
+  if (langSelect) langSelect.value = i18n.getLang();
+}
+
+if (langSelect) {
+  langSelect.addEventListener("change", async () => {
+    await i18n.saveLang(langSelect.value);
+    analysisCache.clear();
+    applyTranslations();
+  });
+}
 
 if (!analyzeLocally || !parseEmlBasic) {
   console.error("MailSafeAnalysis no está disponible en window.", { analysisApi });
   if (errorBox) {
-    errorBox.textContent = "No se pudo cargar el motor de análisis. Recarga la extensión e intenta de nuevo.";
+    errorBox.textContent = t("loadError");
     errorBox.classList.remove("hidden");
   }
 }
@@ -38,7 +64,7 @@ if (emlFile) {
     if (!file) return;
 
     if (!parseEmlBasic) {
-      showError("El motor de análisis no está disponible.");
+      showError(t("engineUnavailable"));
       return;
     }
 
@@ -118,17 +144,17 @@ function resetEvaluation() {
 function prepareForAnalysis() {
   hint.classList.add("hidden");
   status.classList.remove("hidden");
-  if (statusText) statusText.textContent = "Analizando correo...";
+  if (statusText) statusText.textContent = t("analyzing");
   analyzeBtn.disabled = false;
 }
 
 function renderAnalysis(email, result) {
   const label =
-    result.level === "red" ? "🔴 Riesgo alto" :
-    result.level === "yellow" ? "🟡 Precaución" :
-    "🟢 Se ve normal";
+    result.level === "red" ? t("verdictHigh") :
+    result.level === "yellow" ? t("verdictCaution") :
+    t("verdictNormal");
 
-  if (statusText) statusText.textContent = `Nivel de análisis: ${label}`;
+  if (statusText) statusText.textContent = t("analysisLevel", { label });
   setPill(result.level, label);
 
   reason1.textContent = result.reasons[0] || "";
@@ -153,7 +179,7 @@ function renderAnalysis(email, result) {
 
 function analyzeEmailData(sourceKey, emailData) {
   if (!analyzeLocally) {
-    throw new Error("El motor de análisis no está disponible.");
+    throw new Error(t("engineUnavailable"));
   }
 
   if (sourceKey && analysisCache.has(sourceKey)) {
@@ -170,13 +196,13 @@ function analyzeEmailData(sourceKey, emailData) {
 analyzeBtn.addEventListener("click", async () => {
   clearError();
   analyzeBtn.disabled = true;
-  analyzeBtn.textContent = "Analizando...";
+  analyzeBtn.textContent = t("analyzingBtn");
   prepareForAnalysis();
 
   try {
     const tab = await getActiveTab();
     if (!tab || !tab.id || !tab.url) {
-      throw new Error("No se pudo acceder a la pestaña activa.");
+      throw new Error(t("tabError"));
     }
 
     const isAllowed =
@@ -185,13 +211,14 @@ analyzeBtn.addEventListener("click", async () => {
       tab.url.startsWith("https://outlook.office.com/");
 
     if (!isAllowed) {
-      throw new Error("Abre un correo en Gmail u Outlook Web para analizar.");
+      throw new Error(t("domainError"));
     }
 
     await ensureContentScript(tab.id);
     const email = await requestExtractionFromPage(tab.id);
     if (!email || !email.ok) {
-      throw new Error(email?.error || "No pude extraer el correo. Abre un correo (no la lista) e intenta de nuevo.");
+      const errKey = email?.errorCode || "extractFailed";
+      throw new Error(t(errKey));
     }
 
     currentMessageKey = email.messageKey;
@@ -203,6 +230,11 @@ analyzeBtn.addEventListener("click", async () => {
     if (statusText) statusText.textContent = "";
   } finally {
     analyzeBtn.disabled = false;
-    analyzeBtn.textContent = "Analizar este correo";
+    analyzeBtn.textContent = t("analyzeBtn");
   }
 });
+
+(async () => {
+  await i18n.loadLang();
+  applyTranslations();
+})();
